@@ -14,10 +14,18 @@
  */
 
 #include <iostream>
+#include <sys/select.h>
+#include <unistd.h>
 #include <math.h>
 #include <assert.h>
 #include <string.h>
 
+#include "webrtc/modules/audio_processing/include/audio_processing.h"
+#include "webrtc/modules/audio_processing/aec/include/echo_cancellation.h"
+#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/system_wrappers/include/trace.h"
+#include "webrtc/common_audio/include/audio_util.h"
+#include "webrtc/typedefs.h"
 
 #if	!defined(_WEBRTC_API_EXPORTS)
 
@@ -28,10 +36,10 @@ FILE *wfile = NULL;
 
 void PrintOptions()
 {
-    cout << "WebRTC AEC Demo" <<endl;
-    cout << "3. Local File Test"<<endl;
-    cout << "0. End"<<endl;
-    cout << "    Please select your test item:";
+  cout << "WebRTC AEC Demo" <<endl;
+  cout << "3. Local File Test"<<endl;
+  cout << "0. End"<<endl;
+  cout << "    Please select your test item:";
 }
 
 #define Float2Int16(flSample) (int16_t)floor(32768*flSample+0.5f)
@@ -41,162 +49,190 @@ void LocalFileTest();
 
 int main(int argc, char **argv)
 {
-
-    PrintOptions();
-    int i = -1;
-    cin >> i;
-    while (i != 0)
+  
+  PrintOptions();
+  int i = -1;
+  cin >> i;
+  while (i != 0)
+  {
+    switch(i)
     {
-        switch(i)
-        {
-        case 3: LocalFileTest();break;
-        default:break;
-        }
-        
-        PrintOptions();
-        cin >> i;
+      case 3: LocalFileTest();break;
+      default:break;
     }
-
-    return 0;
+    
+    PrintOptions();
+    cin >> i;
+  }
+  
+  return 0;
 }
 
 void LocalFileTest()
-{   
-	unsigned i = 0;
-	size_t	 read_size = 0;
-	unsigned total_size= 0;
-
-	webrtc_ec * echo = NULL;
-	unsigned	clock_rate = 16000;			//16kHz
-	unsigned	samples_per_frame = 16*10;	//16kHz*10ms
-	unsigned	system_delay = 0;
-
-	int16_t	  * file_buffer = NULL;
-	int16_t   * farend_buffer  = NULL;
-	int16_t   * nearend_buffer = NULL;
-
-    char strFileIn [128] = "stero_in.pcm";	//Left  Channel: Farend Signal, Right Channel: Nearend Input Signal (with echo)
-    char strFileOut[128] = "stero_out.pcm";	//Right Channel: same as input, Right Channel: Nearend Output after AEC.
-
-    cout << "    Please give input file name:";
-	cin >> strFileIn;
-
+{
+  unsigned i = 0;
+  size_t	 read_size = 0;
+  unsigned total_size= 0;
+  
+  //  webrtc_ec * echo = NULL;
+  unsigned	clock_rate = 48000;			//16kHz
+  unsigned	samples_per_frame = 48*10;	//16kHz*10ms
+  unsigned	system_delay = 0;
+  
+  int16_t	  * file_buffer    = NULL;
+  float     * farend_buffer  = NULL;
+  float     * nearend_buffer = NULL;
+  
+  int analog_level;
+  bool has_voice;
+  
+  char strFileIn [128] = "stereo_in.pcm";	//Left  Channel: Farend Signal, Right Channel: Nearend Input Signal (with echo)
+  char strFileOut[128] = "stereo_out.pcm";	//Left Channel: same as input, Right Channel: Nearend Output after AEC.
+  
+  cout << "    Please give input file name:";
+  cin >> strFileIn;
+  
 #ifdef WIN32
-    fopen_s(&rfile, strFileIn, "rb");
+  fopen_s(&rfile, strFileIn, "rb");
 #else
   rfile = fopen(strFileIn, "rb");
 #endif
   
-	if (rfile == NULL){
-		printf("file %s open fail.\n", strFileIn);
-		return;
-	}
-    fopen_s(&wfile, strFileOut,"wb");
-	assert(wfile!=NULL);
-
-    cout << "    Sound Card Clock Rate (kHz)?:";
-	cin >> clock_rate;
-	if ((clock_rate!=8) && (clock_rate!=16) && (clock_rate!=32) && (clock_rate!=48))
-	{
-		printf("Not Supported for your %d kHz.\n", clock_rate);
-		fclose(rfile); rfile=NULL;
-		fclose(wfile); wfile=NULL;
-		return;
-	}
-	samples_per_frame = clock_rate*10;	//10ms sample numbers
-	clock_rate *= 1000;	// kHz -> Hz
-
-    cout << "    System Delay (sound card buffer & application playout buffer) (ms)?:";
-	cin >> system_delay;
-	if (system_delay>320){	//To Be check
-		printf("Not Supported for your system delay %d (ms).\n", system_delay);	
-		fclose(rfile); rfile=NULL;
-		fclose(wfile); wfile=NULL;
-		return;
-	}
-
-	if (0 != webrtc_aec_create(
-                        clock_rate,
-                        1,		// channel_count
-                        samples_per_frame,	// clock_rate(kHz)*10(ms)
-                        system_delay,		// system_delay (ms)
-                        0,		// options,
-                        (void**)&echo ) )
-	{
-		printf("%s:%d-Error on webrtc_aec_create()!\n", __FILE__, __LINE__);
-		fclose(rfile);
-		fclose(wfile);
-		return;
-	}
-
-	file_buffer = (int16_t *)malloc( samples_per_frame * 2 * 2 );	//2 Bytes/Sample, 2 Channels: Left for Farend, Right for Nearend.
-	assert( file_buffer != NULL );
-	farend_buffer  = (int16_t *)malloc( samples_per_frame * 2 );	//2 Bytes/Sample
-	nearend_buffer = (int16_t *)malloc( samples_per_frame * 2 );	//2 Bytes/Sample
-	assert( farend_buffer != NULL );
-	assert( nearend_buffer!= NULL );
-
-	while(1)
-	{
-		read_size = fread(file_buffer, sizeof(int16_t), 2*samples_per_frame, rfile);
-		total_size += read_size;
-		if (read_size != (2*samples_per_frame)){
-			printf("File End. Total %d Bytes.\n", total_size<<1);
-			break;
-		}
-
-		// Split into Farend and Nearend Signals
-		for (i=0; i<samples_per_frame; i++){
-			farend_buffer [i] = file_buffer[(i<<1)+0];
-			nearend_buffer[i] = file_buffer[(i<<1)+1];
-		}
-
-		// Echo Processing
-		if (0 != webrtc_aec_cancel_echo( echo,
-						   nearend_buffer,	// rec_frm
-						   farend_buffer,	// play_frm
-						   samples_per_frame,
-						   0,	// options
-						   NULL	// reserved 
-						   ) )
-		{
-			printf("%s:%d-Error on webrtc_aec_cancel_echo()!\n", __FILE__, __LINE__);
-			break;
-		}
-
-		// Merge Again to Stero, Left: Farend, Right: Nearend.
-		for (i=0; i<samples_per_frame; i++){
-			file_buffer[(i<<1)+1] = nearend_buffer[i];
-		}
-
-		// Save to Output File
-		fwrite(file_buffer, sizeof(int16_t), 2*samples_per_frame, wfile);
-	}
-
-	//Get the AEC Status
-	MyAecMetrics aecMetrics;
-	if (0 == webrtc_aec_get_metrics(echo, &aecMetrics))
-	{
-		printf("ERL (Ave/Max/Min)=%d/%d/%d \n",aecMetrics.erl.average,aecMetrics.erl.max,aecMetrics.erl.min);
-		printf("ERLE(Ave/Max/Min)=%d/%d/%d \n",aecMetrics.erle.average,aecMetrics.erle.max,aecMetrics.erle.min); 
-		printf("aNLP(Ave/Max/Min)=%d/%d/%d \n",aecMetrics.aNlp.average,aecMetrics.aNlp.max,aecMetrics.aNlp.min); 
-	}
-
-	int median_delay, standard_delay;
-	if (0 == webrtc_aec_get_delay_metrics(echo, &median_delay, &standard_delay))
-	{
-		printf("WebRTC AEC Median Delay Estimation: %d(ms), Std Delay Estimation: %d(ms)\n", median_delay, standard_delay);
-	}
-
-	webrtc_aec_destroy( echo );
-
-	fclose(rfile); rfile=NULL;
-	fclose(wfile); wfile=NULL;
-
-	free(file_buffer);
-	free(farend_buffer);
-	free(nearend_buffer);
-	return;
+  if (rfile == NULL){
+    printf("file %s open fail.\n", strFileIn);
+    return;
+  }
+#ifdef WIN32
+  fopen_s(&wfile, strFileOut,"wb");
+#else
+  wfile = fopen(strFileOut, "wb");
+#endif
+  assert(wfile!=NULL);
+  
+  cout << "    Sound Card Clock Rate (kHz)?:";
+  cin >> clock_rate;
+  if ((clock_rate!=8) && (clock_rate!=16) && (clock_rate!=32) && (clock_rate!=48))
+  {
+    printf("Not Supported for your %d kHz.\n", clock_rate);
+    fclose(rfile); rfile=NULL;
+    fclose(wfile); wfile=NULL;
+    return;
+  }
+  samples_per_frame = clock_rate*10;	//10ms sample numbers
+  clock_rate *= 1000;	// kHz -> Hz
+  
+  cout << "    System Delay (sound card buffer & application playout buffer) (ms)?:";
+  cin >> system_delay;
+  if (system_delay>320){	//To Be check
+    printf("Not Supported for your system delay %d (ms).\n", system_delay);
+    fclose(rfile); rfile=NULL;
+    fclose(wfile); wfile=NULL;
+    return;
+  }
+  // audio_processing.h example updated
+  // APM accepts only linear PCM audio data in chunks of 10 ms. The int16
+  // interfaces use interleaved data, while the float interfaces use deinterleaved
+  // data.
+  //
+  // Usage example, omitting error checking:
+  webrtc::AudioProcessing* apm = webrtc::AudioProcessing::Create();
+  
+  apm->high_pass_filter()->Enable(true);
+  
+  apm->echo_cancellation()->enable_drift_compensation(false);
+  apm->echo_cancellation()->Enable(true);
+  
+  
+  apm->noise_suppression()->set_level(webrtc::NoiseSuppression::kHigh);
+  apm->noise_suppression()->Enable(true);
+  
+  apm->gain_control()->set_analog_level_limits(0, 255);
+  apm->gain_control()->set_mode(webrtc::GainControl::kAdaptiveAnalog);
+  apm->gain_control()->Enable(true);
+  
+  apm->voice_detection()->Enable(true);
+  
+  file_buffer = (int16_t *)malloc( samples_per_frame * 2 * 2 );	//2 Bytes/Sample, 2 Channels: Left for Farend, Right for Nearend.
+  assert( file_buffer != NULL );
+  farend_buffer  = (float *)malloc( samples_per_frame * sizeof(float) );	//4 Bytes/Sample
+  nearend_buffer = (float *)malloc( samples_per_frame * sizeof(float) );	//4 Bytes/Sample
+  assert( farend_buffer != NULL );
+  assert( nearend_buffer!= NULL );
+  
+  //
+  // // Start a voice call...
+  //
+  
+  while(1)
+  {
+    read_size = fread(file_buffer, sizeof(int16_t), 2*samples_per_frame, rfile);
+    total_size += read_size;
+    if (read_size != (2*samples_per_frame)){
+      printf("File End. Total %d Bytes.\n", total_size<<1);
+      break;
+    }
+    
+    // Split into Farend and Nearend Signals
+    for (i=0; i<samples_per_frame; i++){
+      farend_buffer [i] = webrtc::S16ToFloat(file_buffer[(i<<1)+0]);
+      nearend_buffer[i] = webrtc::S16ToFloat(file_buffer[(i<<1)+1]);
+    }
+    // // ... Render frame arrives bound for the audio HAL ...
+    //    apm->ProcessReverseStream(AudioFrame *render_frame);
+    webrtc::StreamConfig config(48000, 1, false);
+    apm->ProcessReverseStream(&farend_buffer, config, config, &farend_buffer);
+    
+    // // ... Capture frame arrives from the audio HAL ...
+    // // Call required set_stream_ functions.
+// TODO: Get these worked in
+//    apm->set_stream_delay_ms(delay_ms);
+//    apm->gain_control()->set_stream_analog_level(analog_level);
+    //
+    // apm->ProcessStream(AudioFrame *capture_frame);
+    apm->ProcessStream(&nearend_buffer, config, config, &nearend_buffer);
+    //
+    // // Call required stream_ functions.
+    analog_level = apm->gain_control()->stream_analog_level();
+    has_voice = apm->voice_detection()->stream_has_voice();
+    //
+    // // Repeate render and capture processing for the duration of the call...
+    // Echo Processing
+    
+    // Merge Again to Stero, Left: Farend, Right: Nearend.
+    for (i=0; i<samples_per_frame; i++){
+      file_buffer[(i<<1)+1] = webrtc::FloatToS16(nearend_buffer[i]);
+    }
+    
+    // Save to Output File
+    fwrite(file_buffer, sizeof(int16_t), 2*samples_per_frame, wfile);
+  }
+  
+  //Get the AEC Status
+  AecMetrics aecMetrics;
+  if (0 == WebRtcAec_GetMetrics(apm, (AecMetrics*)&aecMetrics) )
+  {
+    printf("ERL (Ave/Max/Min)=%d/%d/%d \n",aecMetrics.erl.average,aecMetrics.erl.max,aecMetrics.erl.min);
+    printf("ERLE(Ave/Max/Min)=%d/%d/%d \n",aecMetrics.erle.average,aecMetrics.erle.max,aecMetrics.erle.min);
+    printf("aNLP(Ave/Max/Min)=%d/%d/%d \n",aecMetrics.aNlp.average,aecMetrics.aNlp.max,aecMetrics.aNlp.min);
+  }
+  
+  int median_delay, standard_delay;
+  float  fraction_poor_delays;
+  if (0 == WebRtcAec_GetDelayMetrics(apm, &median_delay, &standard_delay, &fraction_poor_delays) )
+  {
+    printf("WebRTC AEC Median Delay Estimation: %d(ms), Std Delay Estimation: %d(ms), Fraction of poor delays: %f\n", median_delay, standard_delay, fraction_poor_delays);
+  }
+  
+  // // Close the application...
+  delete apm;
+  
+  fclose(rfile); rfile=NULL;
+  fclose(wfile); wfile=NULL;
+  
+  free(file_buffer);
+  free(farend_buffer);
+  free(nearend_buffer);
+  return;
 }
 
 #endif	//_WEBRTC_API_EXPORTS
