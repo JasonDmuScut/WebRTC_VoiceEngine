@@ -230,6 +230,7 @@ void LocalFileTest()
   
   // // Close the application...
   delete apm;
+  fflush(wfile);
   
   fclose(rfile); rfile=NULL;
   fclose(wfile); wfile=NULL;
