@@ -139,6 +139,11 @@ void LocalFileTest()
   //
   // Usage example, omitting error checking:
   webrtc::AudioProcessing* apm = webrtc::AudioProcessing::Create();
+  if (apm == NULL)
+  {
+    printf("webrtc::AudioProcessing::Create() failed, apm is NULL\n");
+    return;
+  }
   
   apm->high_pass_filter()->Enable(true);
   
@@ -228,8 +233,26 @@ void LocalFileTest()
     printf("WebRTC AEC Median Delay Estimation: %d(ms), Std Delay Estimation: %d(ms), Fraction of poor delays: %f\n", median_delay, standard_delay, fraction_poor_delays);
   }
   
+  apm->Initialize();
+  
+  if (apm) {
+    delete (webrtc::AudioProcessing*)apm;
+    apm = NULL;
+  }
+
+  // Only for EchoControlMobile =(
+//  SetEchoPath(const void* echo_path, size_t size_bytes);
+//  size_t echo_path_length = echo_path_size_bytes();
+//  char *buf = (char *)malloc(echo_path_length);
+//  GetEchoPath((void*) buf, echo_path_length);
+  
+  // Dump Echo Path
+//  if (echo_path_length > 0) {
+//    printf("echo path length: %d\n", echo_path_length);
+//    for (int i=0;i<echo_path_length;i++)
+//      printf("%02x ", buf[i]);
+//  }
   // // Close the application...
-  delete apm;
   fflush(wfile);
   
   fclose(rfile); rfile=NULL;
