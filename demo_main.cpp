@@ -153,7 +153,7 @@ void LocalFileTest()
   
   apm->gain_control()->set_analog_level_limits(0, 255);
   apm->gain_control()->set_mode(webrtc::GainControl::kAdaptiveAnalog);
-  apm->gain_control()->Enable(true);
+  apm->gain_control()->Enable(false);
   
   apm->voice_detection()->Enable(true);
   
