@@ -143,6 +143,8 @@ void LocalFileTest()
   apm->high_pass_filter()->Enable(true);
   
   apm->echo_cancellation()->enable_drift_compensation(false);
+  apm->echo_cancellation()->enable_metrics(true);
+//  apm->echo_cancellation()->enable_comfort_noise(true);
   apm->echo_cancellation()->Enable(true);
   
   
@@ -212,7 +214,7 @@ void LocalFileTest()
   
   //Get the AEC Status
   AecMetrics aecMetrics;
-  if (0 == WebRtcAec_GetMetrics(apm, (AecMetrics*)&aecMetrics) )
+  if (0 == WebRtcAec_GetMetrics(apm, (AecMetrics*)&aecMetrics) || 1 )
   {
     printf("ERL (Ave/Max/Min)=%d/%d/%d \n",aecMetrics.erl.average,aecMetrics.erl.max,aecMetrics.erl.min);
     printf("ERLE(Ave/Max/Min)=%d/%d/%d \n",aecMetrics.erle.average,aecMetrics.erle.max,aecMetrics.erle.min);
@@ -221,7 +223,7 @@ void LocalFileTest()
   
   int median_delay, standard_delay;
   float  fraction_poor_delays;
-  if (0 == WebRtcAec_GetDelayMetrics(apm, &median_delay, &standard_delay, &fraction_poor_delays) )
+  if (0 == WebRtcAec_GetDelayMetrics(apm, &median_delay, &standard_delay, &fraction_poor_delays) || 1)
   {
     printf("WebRTC AEC Median Delay Estimation: %d(ms), Std Delay Estimation: %d(ms), Fraction of poor delays: %f\n", median_delay, standard_delay, fraction_poor_delays);
   }
