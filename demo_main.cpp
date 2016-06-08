@@ -50,20 +50,22 @@ void LocalFileTest();
 int main(int argc, char **argv)
 {
   
-  PrintOptions();
-  int i = -1;
-  cin >> i;
-  while (i != 0)
-  {
-    switch(i)
-    {
-      case 3: LocalFileTest();break;
-      default:break;
-    }
-    
-    PrintOptions();
-    cin >> i;
-  }
+//  PrintOptions();
+//  int i = -1;
+//  cin >> i;
+//  while (i != 0)
+//  {
+//    switch(i)
+//    {
+//      case 3: LocalFileTest();break;
+//      default:break;
+//    }
+//    
+//    PrintOptions();
+//    cin >> i;
+//  }
+  cout << "Local file test\n";
+  LocalFileTest();
   
   return 0;
 }
@@ -75,8 +77,8 @@ void LocalFileTest()
   unsigned total_size= 0;
   
   //  webrtc_ec * echo = NULL;
-  unsigned	clock_rate = 48000;			//16kHz
-  unsigned	samples_per_frame = 48*10;	//16kHz*10ms
+  unsigned	clock_rate = 48;			//16 (kHz)
+  unsigned	samples_per_frame = clock_rate*10;	//16kHz*10ms
   unsigned	system_delay = 0;
   
   int16_t	  * file_buffer    = NULL;
@@ -86,11 +88,11 @@ void LocalFileTest()
   int analog_level;
   bool has_voice;
   
-  char strFileIn [128] = "stereo_in.pcm";	//Left  Channel: Farend Signal, Right Channel: Nearend Input Signal (with echo)
-  char strFileOut[128] = "stereo_out.pcm";	//Left Channel: same as input, Right Channel: Nearend Output after AEC.
+  char strFileIn [128] = "wrtctest_48khz_in.raw";	//Left  Channel: Farend Signal, Right Channel: Nearend Input Signal (with echo)
+  char strFileOut[128] = "wrtctest_48khz_out.raw";	//Left Channel: same as input, Right Channel: Nearend Output after AEC.
   
-  cout << "    Please give input file name:";
-  cin >> strFileIn;
+//  cout << "    Please give input file name:";
+//  cin >> strFileIn;
   
 #ifdef WIN32
   fopen_s(&rfile, strFileIn, "rb");
@@ -109,8 +111,8 @@ void LocalFileTest()
 #endif
   assert(wfile!=NULL);
   
-  cout << "    Sound Card Clock Rate (kHz)?:";
-  cin >> clock_rate;
+//  cout << "    Sound Card Clock Rate (kHz)?:";
+//  cin >> clock_rate;
   if ((clock_rate!=8) && (clock_rate!=16) && (clock_rate!=32) && (clock_rate!=48))
   {
     printf("Not Supported for your %d kHz.\n", clock_rate);
@@ -122,7 +124,8 @@ void LocalFileTest()
   clock_rate *= 1000;	// kHz -> Hz
   
   cout << "    System Delay (sound card buffer & application playout buffer) (ms)?:";
-  cin >> system_delay;
+  system_delay = 50;
+//  cin >> system_delay;
   if (system_delay>320){	//To Be check
     printf("Not Supported for your system delay %d (ms).\n", system_delay);
     fclose(rfile); rfile=NULL;
@@ -162,7 +165,7 @@ void LocalFileTest()
   //
   // // Start a voice call...
   //
-  
+  webrtc::StreamConfig config(48000, 1, false);
   while(1)
   {
     read_size = fread(file_buffer, sizeof(int16_t), 2*samples_per_frame, rfile);
@@ -179,14 +182,12 @@ void LocalFileTest()
     }
     // // ... Render frame arrives bound for the audio HAL ...
     //    apm->ProcessReverseStream(AudioFrame *render_frame);
-    webrtc::StreamConfig config(48000, 1, false);
     apm->ProcessReverseStream(&farend_buffer, config, config, &farend_buffer);
     
     // // ... Capture frame arrives from the audio HAL ...
     // // Call required set_stream_ functions.
-// TODO: Get these worked in
-//    apm->set_stream_delay_ms(delay_ms);
-//    apm->gain_control()->set_stream_analog_level(analog_level);
+    apm->set_stream_delay_ms(-80); // -80 works well...
+    apm->gain_control()->set_stream_analog_level(analog_level);
     //
     // apm->ProcessStream(AudioFrame *capture_frame);
     apm->ProcessStream(&nearend_buffer, config, config, &nearend_buffer);
@@ -194,11 +195,13 @@ void LocalFileTest()
     // // Call required stream_ functions.
     analog_level = apm->gain_control()->stream_analog_level();
     has_voice = apm->voice_detection()->stream_has_voice();
+//    system_delay = apm->stream_delay_ms();
+//    printf("stream_delay %d\n", system_delay); // Never changes
     //
     // // Repeate render and capture processing for the duration of the call...
     // Echo Processing
     
-    // Merge Again to Stero, Left: Farend, Right: Nearend.
+    // Merge Again to Stereo, Left: Farend, Right: Nearend.
     for (i=0; i<samples_per_frame; i++){
       file_buffer[(i<<1)+1] = webrtc::FloatToS16(nearend_buffer[i]);
     }
